@@ -24,3 +24,6 @@ Open http://localhost:3000.
 ## Safety
 
 This is not medical advice. If you are in crisis, contact local emergency services or trusted support immediately.
+
+## Run on web through vercel
+[https://thereapy-buddy.vercel.app/](url)
