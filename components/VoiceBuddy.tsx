@@ -11,19 +11,48 @@ type ChatMessage = {
   content: string;
 };
 
+// Minimal typings for the Web Speech API used here
+type SpeechResultItem = { transcript: string };
+// The Web Speech API exposes a nested array-like structure: results[index][0].transcript
+type SpeechResult = { 0: SpeechResultItem };
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<SpeechResult>;
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  onend: (() => void) | null;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+type WindowWithSpeech = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 function useSpeechRecognition() {
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
 
   useEffect(() => {
-    const SpeechRecognition =
-      (typeof window !== "undefined" &&
-        ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)) ||
-      null;
-    if (SpeechRecognition) {
+    const ctor: SpeechRecognitionConstructor | undefined =
+      typeof window !== "undefined"
+        ? (// Prefer standard if available, else use webkit prefixed
+          (window as WindowWithSpeech).SpeechRecognition ||
+          (window as WindowWithSpeech).webkitSpeechRecognition)
+        : undefined;
+
+    if (ctor) {
       setSupported(true);
-      const recognition = new SpeechRecognition();
+      const recognition = new ctor();
       recognition.lang = "en-US";
       recognition.continuous = false;
       recognition.interimResults = false;
@@ -66,19 +95,6 @@ export default function VoiceBuddy() {
 
   const { recognitionRef, supported, listening, start, stop } = useSpeechRecognition();
 
-  useEffect(() => {
-    if (!recognitionRef.current) return;
-    const recognition = recognitionRef.current as any;
-    recognition.onresult = (event: any) => {
-      const transcript = event.results?.[0]?.[0]?.transcript ?? "";
-      if (transcript) {
-        handleSend(transcript);
-      }
-    };
-    recognition.onerror = () => setLoading(false);
-    recognition.onend = () => {};
-  }, [recognitionRef]);
-
   const handleSend = useCallback(
     async (text?: string) => {
       const content = (text ?? input).trim();
@@ -113,7 +129,7 @@ export default function VoiceBuddy() {
           }
         }
         if (acc) speak(acc);
-      } catch (err) {
+      } catch {
         setMessages((prev) =>
           prev.map((m) =>
             m.role === "assistant" && m.content === ""
@@ -127,6 +143,19 @@ export default function VoiceBuddy() {
     },
     [input, loading, messages]
   );
+
+  useEffect(() => {
+    if (!recognitionRef.current) return;
+    const recognition = recognitionRef.current;
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
+      const transcript = event.results?.[0]?.[0]?.transcript ?? "";
+      if (transcript) {
+        handleSend(transcript);
+      }
+    };
+    recognition.onerror = () => setLoading(false);
+    recognition.onend = () => {};
+  }, [recognitionRef, handleSend]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
